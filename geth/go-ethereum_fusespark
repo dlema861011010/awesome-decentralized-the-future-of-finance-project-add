@@ -1,0 +1,50 @@
+Fuseflash iso
+
+Stripe usdc onboarding webhook return 
+
+
+
+const 
+ = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { ethers } = require('ethers');
+const express = require('express');
+const app = express();
+
+// FuseFlash Provider & Wallet (The 'Dispenser' of USDC on your chain)
+const provider = new ethers.JsonRpcProvider(process.env.FUSE_FLASH_RPC_URL);
+const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
+app.post('/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+ const sig = req.headers['stripe-signature'];
+ let event;
+
+try {
+    // 1. Verify the event came from Stripe
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+} catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+}
+
+// 2. Handle the 'checkout.session.completed' or 'payment_intent.succeeded'
+if (event.type === 'payment_intent.succeeded') {
+    const paymentIntent = event.data.object;
+    
+    // Extract metadata (e.g., the user's FuseFlash wallet address)
+    const userWallet = paymentIntent.metadata.wallet_address;
+    const amountInUsdc = paymentIntent.amount / 100; // Convert cents to USDC
+
+    console.log(`Payment confirmed! Sending ${amountInUsdc} USDC to ${userWallet} on FuseFlash...`);
+
+    try {
+        // 3. Trigger the transfer on FuseFlash
+        const tx = await usdcContract.transfer(userWallet, ethers.parseUnits(amountInUsdc.toString(), 6));
+        await tx.wait();
+        console.log(`On-chain transfer successful: ${tx.hash}`);
+    } catch (blockchainErr) {
+        console.error("Blockchain transfer failed:", blockchainErr);
+        // Implement a retry logic or notification system here
+    }
+}
+
+res.json({received: true});
+O
